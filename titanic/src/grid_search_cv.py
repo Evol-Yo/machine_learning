@@ -1,96 +1,72 @@
 # Imports
 
-# pandas
-import matplotlib
 import pandas as pd
-from pandas import Series,DataFrame
-
-import xgboost as xgb
-
-# numpy, matplotlib, seaborn
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
+from sklearn import preprocessing
 from sklearn.cross_validation import StratifiedKFold
-from sklearn.grid_search import GridSearchCV
-from sklearn.model_selection import train_test_split
-from tensorflow.contrib.distributions.python.ops.bijectors import inline
+
+from sklearn.ensemble import RandomForestRegressor
+
+import numpy as np
+from sklearn.model_selection import GridSearchCV
+from sklearn.preprocessing import LabelEncoder
 
 # machine learning
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC, LinearSVC
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.naive_bayes import GaussianNB
+import xgboost as xgb
 
 titanic_df = pd.read_csv("../input/train.csv")
 test_df    = pd.read_csv("../input/test.csv")
 
-titanic_df = titanic_df.drop(['PassengerId','Name','Ticket'], axis=1)
-test_df    = test_df.drop(['Name','Ticket'], axis=1)
+titanic_df = titanic_df.drop(['PassengerId', 'Ticket'], axis=1)
+test_df    = test_df.drop(['Ticket'], axis=1)
 
+## Name
+titanic_df["NameLength"] = titanic_df["Name"].apply(lambda x: len(x))
+test_df["NameLength"] = test_df["Name"].apply(lambda x: len(x))
+
+bins = [0, 20, 40, 57, 85]
+group_names = ['short', 'okay', 'good', 'long']
+titanic_df['NlengthD'] = pd.cut(titanic_df['NameLength'], bins, labels=group_names)
+test_df['NlengthD'] = pd.cut(test_df['NameLength'], bins, labels=group_names)
+
+titanic_df = titanic_df.drop(['Name', 'NameLength'], axis=1)
+test_df    = test_df.drop(['Name', 'NameLength'], axis=1)
+
+## Embarked
 titanic_df["Embarked"] = titanic_df["Embarked"].fillna("S")
-
-# sns.factorplot('Embarked','Survived', data=titanic_df,size=4,aspect=3)
-
-## embark
-embark_dummies_titanic  = pd.get_dummies(titanic_df['Embarked'])
-embark_dummies_titanic.drop(['S'], axis=1, inplace=True)
-
-embark_dummies_test  = pd.get_dummies(test_df['Embarked'])
-embark_dummies_test.drop(['S'], axis=1, inplace=True)
-
-titanic_df = titanic_df.join(embark_dummies_titanic)
-test_df    = test_df.join(embark_dummies_test)
-
-titanic_df.drop(['Embarked'], axis=1,inplace=True)
-test_df.drop(['Embarked'], axis=1,inplace=True)
+test_df["Embarked"] = test_df["Embarked"].fillna("S")
 
 ## Fare
+titanic_df["Fare"].fillna(titanic_df["Fare"].median(), inplace=True)
 test_df["Fare"].fillna(test_df["Fare"].median(), inplace=True)
 
 titanic_df['Fare'] = titanic_df['Fare'].astype(int)
 test_df['Fare']    = test_df['Fare'].astype(int)
 
-# fare_not_survived = titanic_df["Fare"][titanic_df["Survived"] == 0]
-# fare_survived     = titanic_df["Fare"][titanic_df["Survived"] == 1]
-#
-# avgerage_fare = DataFrame([fare_not_survived.mean(), fare_survived.mean()])
-# std_fare      = DataFrame([fare_not_survived.std(), fare_survived.std()])
+## Cabin
+titanic_df["Deck"]=titanic_df.Cabin.str[0]
+test_df["Deck"]=test_df.Cabin.str[0]
 
-
-## Age
-average_age_titanic   = titanic_df["Age"].mean()
-std_age_titanic       = titanic_df["Age"].std()
-count_nan_age_titanic = titanic_df["Age"].isnull().sum()
-
-average_age_test   = test_df["Age"].mean()
-std_age_test       = test_df["Age"].std()
-count_nan_age_test = test_df["Age"].isnull().sum()
-
-rand_1 = np.random.randint(average_age_titanic - std_age_titanic, average_age_titanic + std_age_titanic, size = count_nan_age_titanic)
-rand_2 = np.random.randint(average_age_test - std_age_test, average_age_test + std_age_test, size = count_nan_age_test)
-
-titanic_df["Age"][np.isnan(titanic_df["Age"])] = rand_1
-test_df["Age"][np.isnan(test_df["Age"])] = rand_2
-
-titanic_df['Age'] = titanic_df['Age'].astype(int)
-test_df['Age']    = test_df['Age'].astype(int)
+titanic_df.Deck.fillna('Z', inplace=True)
+test_df.Deck.fillna('Z', inplace=True)
 
 titanic_df.drop("Cabin",axis=1,inplace=True)
 test_df.drop("Cabin",axis=1,inplace=True)
 
 ## Family
-titanic_df['Family'] =  titanic_df["Parch"] + titanic_df["SibSp"]
-titanic_df['Family'].loc[titanic_df['Family'] > 0] = 1
-titanic_df['Family'].loc[titanic_df['Family'] == 0] = 0
+titanic_df["FamilySize"] = titanic_df["SibSp"] + titanic_df["Parch"] + 1
+test_df["FamilySize"] = test_df["SibSp"] + test_df["Parch"] + 1
 
-test_df['Family'] =  test_df["Parch"] + test_df["SibSp"]
-test_df['Family'].loc[test_df['Family'] > 0] = 1
-test_df['Family'].loc[test_df['Family'] == 0] = 0
+titanic_df.loc[titanic_df["FamilySize"] == 1, "FsizeD"] = 'singleton'
+titanic_df.loc[(titanic_df["FamilySize"] > 1)  &  (titanic_df["FamilySize"] < 5) , "FsizeD"] = 'small'
+titanic_df.loc[titanic_df["FamilySize"] > 4, "FsizeD"] = 'large'
 
-titanic_df = titanic_df.drop(['SibSp','Parch'], axis=1)
-test_df    = test_df.drop(['SibSp','Parch'], axis=1)
+test_df.loc[test_df["FamilySize"] == 1, "FsizeD"] = 'singleton'
+test_df.loc[(test_df["FamilySize"] > 1) & (test_df["FamilySize"] <5) , "FsizeD"] = 'small'
+test_df.loc[test_df["FamilySize"] > 4, "FsizeD"] = 'large'
+
+titanic_df = titanic_df.drop(['SibSp', 'Parch'], axis=1)
+test_df    = test_df.drop(['SibSp', 'Parch'], axis=1)
 
 ## Sex
 
@@ -104,35 +80,45 @@ test_df['Person']    = test_df[['Age','Sex']].apply(get_person,axis=1)
 titanic_df.drop(['Sex'],axis=1,inplace=True)
 test_df.drop(['Sex'],axis=1,inplace=True)
 
-person_dummies_titanic  = pd.get_dummies(titanic_df['Person'])
-person_dummies_titanic.columns = ['Child','Female','Male']
-person_dummies_titanic.drop(['Male'], axis=1, inplace=True)
+labelEnc=LabelEncoder()
+cat_vars=['Deck', 'FsizeD', 'NlengthD', 'Embarked', 'FsizeD', 'Pclass', 'Person']
+for col in cat_vars:
+    titanic_df[col]=labelEnc.fit_transform(titanic_df[col])
+    test_df[col]=labelEnc.fit_transform(test_df[col])
 
-person_dummies_test  = pd.get_dummies(test_df['Person'])
-person_dummies_test.columns = ['Child','Female','Male']
-person_dummies_test.drop(['Male'], axis=1, inplace=True)
+def fill_missing_age(df):
+    # Feature set
+    age_df = df[['Age', 'NlengthD', 'Fare', 'Embarked', 'Deck', 'FsizeD', 'Pclass', 'Person']]
+    # Split sets into train and test
+    train = age_df.loc[(df.Age.notnull())]  # known Age values
+    test = age_df.loc[(df.Age.isnull())]  # null Ages
 
-titanic_df = titanic_df.join(person_dummies_titanic)
-test_df    = test_df.join(person_dummies_test)
+    # All age values are stored in a target array
+    y = train.values[:, 0]
 
-titanic_df.drop(['Person'],axis=1,inplace=True)
-test_df.drop(['Person'],axis=1,inplace=True)
+    # All the other values are stored in the feature array
+    X = train.values[:, 1::]
 
-## Pclass
+    # Create and fit a model
+    rtr = RandomForestRegressor(n_estimators=100, n_jobs=-1)
+    rtr.fit(X, y)
 
-pclass_dummies_titanic  = pd.get_dummies(titanic_df['Pclass'])
-pclass_dummies_titanic.columns = ['Class_1','Class_2','Class_3']
-pclass_dummies_titanic.drop(['Class_3'], axis=1, inplace=True)
+    # Use the fitted model to predict the missing values
+    predictedAges = rtr.predict(test.values[:, 1::])
 
-pclass_dummies_test  = pd.get_dummies(test_df['Pclass'])
-pclass_dummies_test.columns = ['Class_1','Class_2','Class_3']
-pclass_dummies_test.drop(['Class_3'], axis=1, inplace=True)
+    # Assign those predictions to the full data set
+    df.loc[(df.Age.isnull()), 'Age'] = predictedAges
 
-titanic_df.drop(['Pclass'],axis=1,inplace=True)
-test_df.drop(['Pclass'],axis=1,inplace=True)
+    return df
 
-titanic_df = titanic_df.join(pclass_dummies_titanic)
-test_df    = test_df.join(pclass_dummies_test)
+titanic_df=fill_missing_age(titanic_df)
+test_df=fill_missing_age(test_df)
+
+std_scale = preprocessing.StandardScaler().fit(titanic_df[['Age', 'Fare']])
+titanic_df[['Age', 'Fare']] = std_scale.transform(titanic_df[['Age', 'Fare']])
+
+std_scale = preprocessing.StandardScaler().fit(test_df[['Age', 'Fare']])
+test_df[['Age', 'Fare']] = std_scale.transform(test_df[['Age', 'Fare']])
 
 X_train = titanic_df.drop("Survived",axis=1)
 Y_train = titanic_df["Survived"]
@@ -150,6 +136,28 @@ X_test  = test_df.drop("PassengerId",axis=1).copy()
 #
 # print("Scoring")
 # score = logreg.score(X_train, Y_train)
+#
+# print(score)
+
+# from sklearn import cross_validation
+# from sklearn.linear_model import LogisticRegression
+# from sklearn.model_selection import cross_val_score
+# from sklearn.model_selection import ShuffleSplit
+#
+# # predictors = ["Pclass", "Sex", "Fare", "Embarked", "Deck", "Age",
+# #               "FsizeD", "NlengthD", "Parch"]
+#
+# # predictors = ["Pclass", "Sex", "Fare", "Embarked", "Age",
+# #               "FsizeD",  "Parch"]
+#
+# # Initialize our algorithm
+# lr = LogisticRegression(random_state=1)
+# # Compute the accuracy score for all the cross validation folds.
+# cv = ShuffleSplit(n_splits=10, test_size=0.3, random_state=50)
+#
+# scores = cross_val_score(lr, X_train, Y_train, scoring='f1', cv=cv)
+# # Take the mean of the scores (because we have one for each fold)
+# print(scores.mean())
 
 ###########################################################################
 # svc = SVC()
@@ -172,8 +180,15 @@ X_test  = test_df.drop("PassengerId",axis=1).copy()
 # random_forest.fit(X_train, Y_train)
 #
 # print("Predicting...")
-# Y_pred = random_forest.predict(X_test)
+# results = random_forest.predict(X_test)
 #
+# submission = pd.DataFrame({
+#     "PassengerId": test_df["PassengerId"],
+#     "Survived": results.astype(np.int16)
+# })
+# submission.to_csv('titanic.csv', index=False)
+
+
 # print("Scoring...")
 # score = random_forest.score(X_train, Y_train)
 #
@@ -191,6 +206,33 @@ X_test  = test_df.drop("PassengerId",axis=1).copy()
 
 
 ###########################################################################
+# params={
+#     'booster':'gbtree',
+#     'objective': 'binary:logistic',
+#     'max_depth':5, # 构建树的深度 [1:]
+#     'subsample':0.8, # 采样训练数据，设置为0.5，随机选择一般的数据实例 (0:1]
+#     'colsample_bytree': 0.6, # 构建树树时的采样比率 (0:1]
+#     'eta':0.03,
+#     'silent':0,
+#     'seed': 1234,
+#     'nthread': 2,# cpu 线程数,根据自己U的个数适当调整
+# }
+#
+# xgtrain = xgb.DMatrix(X_train, label=Y_train)
+# xgtest = xgb.DMatrix(X_test)
+#
+# num_rounds = 200
+# xgb_model = xgb.train(params, xgtrain, num_rounds)
+# results = xgb_model.predict(xgtest)
+# results[results>=0.5] = 1
+# results[results<0.5] = 0
+#
+# submission = pd.DataFrame({
+#     "PassengerId": test_df["PassengerId"],
+#     "Survived": results.astype(np.int16)
+# })
+# submission.to_csv('titanic.csv', index=False)
+
 params={
     'booster':['gbtree'],
     'objective': ['binary:logistic'],
@@ -217,6 +259,3 @@ for field in clf.grid_scores_:
     print(field)
 print(clf.best_params_)
 print(clf.best_score_)
-# model = xgb.train(params, xgtrain, num_rounds)
-
-# results = xgb_model.predict(xgtest)
